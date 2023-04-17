@@ -2,13 +2,13 @@ defaults:
   - optim: adam
   - tasks:
       - cola
-      - mnli
       - mrpc
       - qnli
-      - qqp
       - rte
       - sst2
       - stsb
+      # - qqp
+      # - mnli
 #      - wnli
 
 optim:

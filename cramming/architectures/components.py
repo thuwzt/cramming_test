@@ -8,6 +8,7 @@ from functools import partial
 from .embeddings import SinusoidalPositional, LearnablePositional, ScaledSinosoidal
 from .attention import get_attention_mechanism, FLASH
 from .fused_layers import get_layer_fn
+from flash_attn.linear import Linear, Sample
 
 INPLACE = False
 
@@ -54,7 +55,9 @@ class AttentionComponent(torch.nn.Module):
         if cfg_attention.skip_output_projection:
             self.dense = torch.nn.Identity()
         else:
-            self.dense = torch.nn.Linear(self.self_attention.output_dim, hidden_size, bias=use_bias)
+############################################################################################################
+            # self.dense = torch.nn.Linear(self.self_attention.output_dim, hidden_size, bias=use_bias)
+            self.dense = Linear(self.self_attention.output_dim, hidden_size, name="attention_output", bias=use_bias)
 
         self.LAYOUT = self.self_attention.LAYOUT
 
@@ -71,13 +74,17 @@ class FFNComponent(torch.nn.Module):
 
     def __init__(self, hidden_size, intermed_size, nonlin_fn=torch.nn.GELU, use_bias=True):
         super().__init__()
-        self.dense_in = torch.nn.Linear(hidden_size, intermed_size, bias=use_bias)
+############################################################################################################
+        # self.dense_in = torch.nn.Linear(hidden_size, intermed_size, bias=use_bias)
+        self.dense_in = Linear(hidden_size, intermed_size, name="intermediate", bias=use_bias)
         self.nonlin = nonlin_fn()
         if isinstance(self.nonlin, GLU) or getattr(self.nonlin, "original_name", "") == "GLU":
             intermed_output_size = intermed_size // 2
         else:
             intermed_output_size = intermed_size
-        self.dense_out = torch.nn.Linear(intermed_output_size, hidden_size, bias=use_bias)
+############################################################################################################
+        # self.dense_out = torch.nn.Linear(intermed_output_size, hidden_size, bias=use_bias)
+        self.dense_out = Linear(intermed_output_size, hidden_size, name="output", bias=use_bias)
 
     def forward(self, hidden_states):
         return self.dense_out(self.nonlin(self.dense_in(hidden_states)))
@@ -131,6 +138,8 @@ class TransformerLayer(torch.nn.Module):
 
         self.LAYOUT = self.attn.LAYOUT
 
+        self.sample = Sample(sample=True)
+
     def forward(self, states, attention_mask: Optional[torch.Tensor] = None, res_scale=1):
         if self.norm_scheme == "pre":  # On Layer Normalization in the Transformer Architecture
             if self.training:
@@ -151,6 +160,7 @@ class TransformerLayer(torch.nn.Module):
                 states = self.norm1(self.fn_eval(states, self.attn(states, attention_mask), self.alpha, res_scale))
                 states = self.norm2(self.fn_eval(states, self.ffn(states), self.alpha, res_scale))
 
+        states = self.sample(states)
         return states
 
 
@@ -176,7 +186,10 @@ class FLASHLayer(torch.nn.Module):
 class PoolingComponent(torch.nn.Module):
     def __init__(self, cfg_head, main_model_hidden_size):
         super().__init__()
-        self.dense = torch.nn.Linear(main_model_hidden_size, cfg_head.head_dim) if cfg_head.include_ff_layer else torch.nn.Identity()
+############################################################################################################
+        # self.dense = torch.nn.Linear(main_model_hidden_size, cfg_head.head_dim) if cfg_head.include_ff_layer else torch.nn.Identity()
+        self.dense = Linear(main_model_hidden_size, cfg_head.head_dim, name="decoder") if cfg_head.include_ff_layer else torch.nn.Identity()
+
         self.activation = _get_nonlin_fn(cfg_head.nonlin, use_gating=False)()
         self.dropout = torch.nn.Dropout(cfg_head.classifier_dropout)
         self.pool_scheme: str = cfg_head.pooler
