@@ -18,6 +18,7 @@ def main_training_process(cfg, setup):
     """This function controls the central training loop."""
     local_time = time.time()
     model = cramming.construct_model(cfg.arch, cfg.data.vocab_size)
+    print(model)
     dataset, tokenizer = cramming.load_pretraining_corpus(cfg.data, cfg.impl)
 
     model_engine, _, _, dataloader = cramming.load_backend(
@@ -49,9 +50,14 @@ def main_training_process(cfg, setup):
         loss_vals.append(loss.detach())
 
         # Check stopping criteria
-        if check_deadline(wallclock_timer, cfg.budget) or step == cfg.train.steps:
-            training_allowed = False
-            log.info("Reached deadline. Stopping training ...")
+        if cfg.train.scheduler == "same-as-baseline":
+            if step == cfg.train.baseline_steps:
+                training_allowed = False
+                log.info("Reached baseline steps. Stopping training ...")
+        else:
+            if check_deadline(wallclock_timer, cfg.budget) or step == cfg.train.steps:
+                training_allowed = False
+                log.info("Reached deadline. Stopping training ...")
 
         # Collect stats and print to console and upload to wandb
         if step % cfg.impl.print_loss_every_nth_step == 0:

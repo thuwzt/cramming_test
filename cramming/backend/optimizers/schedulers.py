@@ -168,6 +168,8 @@ def get_schedule_fn(cfg_train):
             falloff=0.25,
             base_percentage=0.25,
         )
+    elif cfg_train.scheduler == "same-as-baseline":
+        scheduler_fn = get_baseline_scheduler
     elif cfg_train.scheduler in [
         "linear",
         "cosine",
@@ -416,10 +418,17 @@ def get_budget_triangle(optimizer, hour_budget, num_training_steps, base_percent
 
     def lr_lambda(current_step):
         fake_step = _get_fake_step(current_step, initial_time, hour_budget, num_training_steps)
-        return min(
+        # return min(
+        #     base_percentage + fake_step * (1 - base_percentage) / (1 - falloff) / num_training_steps,
+        #     float(1 / falloff - fake_step / (num_training_steps * falloff)),
+        # )
+        lr = min(
             base_percentage + fake_step * (1 - base_percentage) / (1 - falloff) / num_training_steps,
             float(1 / falloff - fake_step / (num_training_steps * falloff)),
         )
+        # with open("/home/ubuntu/cramming_original/lr_64.txt", "a") as f:
+        #     print(f"{current_step}: {lr}", file=f)
+        return lr
 
     return LambdaLR(optimizer, lr_lambda, -1)
 
@@ -458,5 +467,17 @@ def get_budget_polynomial_decay_with_warmup(optimizer, hour_budget, num_warmup_s
             pct_remaining = 1 - (current_step - num_warmup_steps) / decay_steps
             decay = lr_range * pct_remaining**power + lr_end
             return decay / lr_init  # as LambdaLR multiplies by lr_init
+
+    return LambdaLR(optimizer, lr_lambda, -1)
+
+import re
+def get_baseline_scheduler(optimizer):
+    with open("/home/ubuntu/cramming_original/lr_64.txt", "r") as f:
+        lines = f.readlines()
+        # lines are like: "0: 0.0001\n"
+        lr_list = [float(re.findall(r"\d+: (.*)", lines[i])[0]) for i in range(0, len(lines), 2)]
+
+    def lr_lambda(current_step):
+        return lr_list[current_step]
 
     return LambdaLR(optimizer, lr_lambda, -1)
